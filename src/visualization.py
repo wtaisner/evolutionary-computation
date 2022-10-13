@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 
+
 def plot_result(nodes: np.ndarray, path: np.array, objective: int):
     """
     plots obtained result
@@ -24,7 +25,5 @@ def plot_result(nodes: np.ndarray, path: np.array, objective: int):
     nc = nx.draw_networkx_nodes(G, pos, node_color=cost, label=None, node_size=20, cmap='Blues')
     plt.colorbar(nc)
     plt.text(-5, -20, f'objective: {objective}')
-    #plt.axis('off')
+    # plt.axis('off')
     plt.show()
-
-
