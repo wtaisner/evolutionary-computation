@@ -19,7 +19,7 @@ def plot_result(nodes: np.ndarray, edges: np.array, objective: int):
     cost = nodes[:, 2]
 
     fig = plt.figure(1, figsize=(16, 12))
-    ec = nx.draw_networkx_edges(G, pos, alpha=0.2)
+    ec = nx.draw_networkx_edges(G, pos, alpha=0.5)
     nc = nx.draw_networkx_nodes(G, pos, node_color=cost, label=None, node_size=20, cmap='Blues')
     plt.colorbar(nc)
     plt.text(-5, -20, f'objective: {objective}')

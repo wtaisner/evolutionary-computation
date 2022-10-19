@@ -121,9 +121,50 @@ class GreedyCycleTSP(TSP):
         return int(costs + dists), edges
 
 
+class GreedyCycleRegretTSP(TSP):
+    """
+    A class implementing greedy cycle method with k-regret for solving TSP problem
+    :param k: k-regret, how many elements to take into account while computing regret
+    :param weight: weight of the regret, when equal to 1 the next node is chosen only based on the regret, otherwise
+    the objective is also taken into account
+    """
+    def __init__(self, nodes_path: str, k: int, weight: float):
+        super().__init__(nodes_path)
+        self.k = k
+        self.weight = weight
+
+    def run_algorithm(self, starting_node: int):
+        perc_50 = int(np.ceil(self.n * 0.5))
+        dist_matrix = deepcopy(self.dist_matrix)
+        dist = dist_matrix[starting_node, :]
+        cost = deepcopy(self.costs)
+        dist[[starting_node]], cost[[starting_node]] = None, None
+        new_node = np.nanargmin(dist + cost)
+        edges = [[starting_node, new_node], [new_node, starting_node]]
+        nodes = [starting_node, new_node]
+        costs = self.costs[starting_node] + self.costs[new_node]
+        dists = 2 * self.dist_matrix[starting_node, new_node]
+        for _ in range(perc_50 - 2):
+            dist_matrix[nodes, nodes] = None
+            cost[nodes] = None
+            distances = np.array([dist_matrix[i, :] + dist_matrix[j, :] + cost - self.dist_matrix[i, j] for i, j in edges]).T
+            distances_sort = np.sort(distances, axis=1)
+            distances_diff = np.apply_along_axis(lambda x: self.k * x[0] - np.sum(x[:self.k]), 1, distances_sort)
+            new_node = np.nanargmin(self.weight * distances_diff + (1 - self.weight) * distances_sort[:, 0])
+            i = np.nanargmin(distances[new_node])
+            i_edge = edges[i]
+            edges.pop(i)
+            edges.append([i_edge[0], new_node])
+            edges.append([new_node, i_edge[1]])
+            nodes.append(new_node)
+            costs += self.costs[new_node]
+            dists += self.dist_matrix[i_edge[0], new_node] + self.dist_matrix[i_edge[1], new_node] - self.dist_matrix[i_edge[0], i_edge[1]]
+
+        return int(costs + dists), edges
+
+
 if __name__ == '__main__':
-    nnTSP = GreedyCycleTSP('../data/TSPA.csv')
-    #nnTSP = NearestNeighbourTSP('../data/TSPA.csv')
+    nnTSP = GreedyCycleRegretTSP('../data/TSPA.csv', k=2, weight=0.4)
     start = time.time()
     print(nnTSP.run_algorithm(0))
     print(time.time() - start)
