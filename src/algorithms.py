@@ -177,6 +177,7 @@ class GreedyLocalSearchTSP(TSP):
         super().__init__(nodes_path)
 
         self.exchange = exchange
+        self.pairs = list(itertools.combinations(np.arange(int(np.ceil(self.n * 0.5))), 2))
 
         if init_solution == 'random':
             self.init_solution = RandomTSP(nodes_path)
@@ -184,72 +185,73 @@ class GreedyLocalSearchTSP(TSP):
             self.init_solution = GreedyCycleTSP(nodes_path)
 
     def two_nodes_exchange(self, path, cost):
-        pairs = list(itertools.combinations(np.arange(len(path)), 2))
-        np.random.shuffle(pairs)
         not_selected = list(set(range(self.n)) - set(path))
-        node_select = list(itertools.product(np.arange(len(path)), np.arange(len(not_selected))))
-        np.random.shuffle(node_select)
-
-        for node in node_select:
-            k, l = node
+        nodes = list(itertools.product(np.arange(len(path)), np.arange(len(not_selected))))
+        np.random.shuffle(nodes)
+        np.random.shuffle(self.pairs)
+        for node in nodes:
             tmp_path = copy.deepcopy(path)
-            tmp_path[k] = not_selected[l]
+            n1, n2 = node
+            path.insert(0, path[-1])
+            path.append(path[1])
+            current = self.dist_matrix[path[n1], path[n1 + 1]] + self.dist_matrix[path[n1 + 1], path[n1 + 2]] + \
+                      self.costs[path[n1 + 1]]
+            new = self.dist_matrix[path[n1], not_selected[n2]] + self.dist_matrix[not_selected[n2], path[n1 + 2]] + \
+                  self.costs[not_selected[n2]]
+            path.pop(0)
+            tmp_path[n1] = not_selected[n2]
             tmp_path.append(tmp_path[0])
-            path.append(path[0])
-            for pair in pairs:
+            for pair in self.pairs:
                 a, b = pair
+                i0, i, i1, j0, j, j1 = path[a - 1], path[a], path[a + 1], path[b - 1], path[b], path[b + 1]
+                ti0, ti, ti1, tj0, tj, tj1 = tmp_path[a - 1], tmp_path[a], tmp_path[a + 1], tmp_path[b - 1], tmp_path[
+                    b], tmp_path[b + 1]
                 if b - a == 1:
-                    i0, i, i1, j0, j, j1 = path[a - 1], path[a], path[a + 1], path[b - 1], path[b], \
-                                           path[b + 1]
-                    current = self.costs[path[k]] + self.dist_matrix[i0, i] + self.dist_matrix[j, j1]
-                    i0, i, i1, j0, j, j1 = tmp_path[a - 1], tmp_path[a], tmp_path[a + 1], tmp_path[b - 1], tmp_path[b], \
-                                           tmp_path[b + 1]
-                    new = self.costs[not_selected[l]] + self.dist_matrix[i0, j] + self.dist_matrix[i, j1]
+                    current += self.dist_matrix[i0, i] + self.dist_matrix[j, j1]
+                    new += self.dist_matrix[ti0, tj] + self.dist_matrix[ti, tj1]
                 else:
-                    i0, i, i1, j0, j, j1 = path[a - 1], path[a], path[a + 1], path[b - 1], path[b], \
-                                           path[b + 1]
-                    current = self.costs[path[k]] + self.dist_matrix[i0, i] + self.dist_matrix[i, i1] + self.dist_matrix[j0, j] + \
-                              self.dist_matrix[j, j1]
-                    i0, i, i1, j0, j, j1 = tmp_path[a - 1], tmp_path[a], tmp_path[a + 1], tmp_path[b - 1], tmp_path[b], \
-                                           tmp_path[b + 1]
-                    new = self.costs[not_selected[l]] + self.dist_matrix[i0, j] + self.dist_matrix[j, i1] + self.dist_matrix[j0, i] + \
-                          self.dist_matrix[i, j1]
+                    current += self.dist_matrix[i0, i] + self.dist_matrix[i, i1] + self.dist_matrix[j0, j] + \
+                               self.dist_matrix[j, j1]
+                    new += self.dist_matrix[ti0, tj] + self.dist_matrix[tj, ti1] + self.dist_matrix[tj0, ti] + \
+                           self.dist_matrix[ti, tj1]
                 if new - current < 0:
+                    tmp_path[a], tmp_path[b] = tmp_path[b], tmp_path[a]
                     tmp_path.pop()
-                    node1, node2 = tmp_path[a], tmp_path[b]
-                    tmp_path[a] = node2
-                    tmp_path[b] = node1
-                    real_cost = np.sum([self.costs[i] for i in tmp_path]) + np.sum(self.dist_matrix[np.array(tmp_path), np.roll(tmp_path, -1)])
-                    this_cost = cost + new - current
                     return True, tmp_path, cost + new - current
-            tmp_path.pop()
             path.pop()
         return False, path, cost
 
     def two_edges_exchange(self, path, cost):
-        pairs = list(itertools.combinations(np.arange(len(path)), 2))
-        np.random.shuffle(pairs)
         not_selected = list(set(range(self.n)) - set(path))
-        node_select = list(itertools.product(np.arange(len(path)), np.arange(len(not_selected))))
-        np.random.shuffle(node_select)
-        for node in node_select:
-            i, j = node
+        nodes = list(itertools.product(np.arange(len(path)), np.arange(len(not_selected))))
+        np.random.shuffle(nodes)
+        np.random.shuffle(self.pairs)
+        for node in nodes:
             tmp_path = copy.deepcopy(path)
-            tmp_path[i] = not_selected[j]
+            n1, n2 = node
+            path.insert(0, path[-1])
+            path.append(path[1])
+            current = self.dist_matrix[path[n1], path[n1 + 1]] + self.dist_matrix[path[n1 + 1], path[n1 + 2]] + \
+                      self.costs[path[n1 + 1]]
+            new = self.dist_matrix[path[n1], not_selected[n2]] + self.dist_matrix[not_selected[n2], path[n1 + 2]] + \
+                  self.costs[not_selected[n2]]
+            path.pop(0)
+            tmp_path[n1] = not_selected[n2]
             tmp_path.append(tmp_path[0])
-            for pair in pairs:
+            for pair in self.pairs:
                 a, b = pair
                 if b - a > 2:
                     i1, i2, j1, j2 = path[a], path[a + 1], path[b - 1], path[b]
-                    current = self.costs[path[i]] + self.dist_matrix[i1, i2] + self.dist_matrix[j1, j2]
-                    i1, i2, j1, j2 = tmp_path[a], tmp_path[a + 1], tmp_path[b - 1], tmp_path[b]
-                    new = self.costs[not_selected[j]] + self.dist_matrix[i1, j1] + self.dist_matrix[i2, j2]
-                    if new - current < 0:
-                        tmp_path.pop()
-                        tmp_path[a + 1:b] = tmp_path[b - 1:a:-1]
-                        return True, tmp_path, cost + new - current
-            tmp_path.pop()
+                    ti1, ti2, tj1, tj2 = tmp_path[a], tmp_path[a + 1], tmp_path[b - 1], tmp_path[b]
+                    current += self.dist_matrix[i1, i2] + self.dist_matrix[j1, j2]
+                    new += self.dist_matrix[ti1, tj1] + self.dist_matrix[ti2, tj2]
+                if new - current < 0:
+                    tmp_path[a + 1:b] = tmp_path[b - 1:a:-1]
+                    tmp_path.pop()
+                    return True, tmp_path, cost + new - current
+            path.pop()
         return False, path, cost
+
 
     def run_algorithm(self, starting_node: int):
         cost, path = self.init_solution.run_algorithm(starting_node)
@@ -269,6 +271,7 @@ class SteepestLocalSearchTSP(TSP):
         super().__init__(nodes_path)
 
         self.exchange = exchange
+        self.pairs = list(itertools.combinations(np.arange(int(np.ceil(self.n * 0.5))), 2))
 
         if init_solution == 'random':
             self.init_solution = RandomTSP(nodes_path)
@@ -277,24 +280,25 @@ class SteepestLocalSearchTSP(TSP):
 
     def two_nodes_exchange(self, init_path, cost):
         path = copy.deepcopy(init_path)
-        pairs = list(itertools.combinations(np.arange(len(path)), 2))
         path.append(path[0])
         deltas = []
-        for pair in pairs:
+        for pair in self.pairs:
             a, b = pair
             i0, i, i1, j0, j, j1 = path[a - 1], path[a], path[a + 1], path[b - 1], path[b], path[b + 1]
             if b - a == 1:
                 current = self.dist_matrix[i0, i] + self.dist_matrix[j, j1]
                 new = self.dist_matrix[i0, j] + self.dist_matrix[i, j1]
             else:
-                current = self.dist_matrix[i0, i] + self.dist_matrix[i, i1] + self.dist_matrix[j0, j] + self.dist_matrix[j, j1]
-                new = self.dist_matrix[i0, j] + self.dist_matrix[j, i1] + self.dist_matrix[j0, i] + self.dist_matrix[i, j1]
+                current = self.dist_matrix[i0, i] + self.dist_matrix[i, i1] + self.dist_matrix[j0, j] + \
+                          self.dist_matrix[j, j1]
+                new = self.dist_matrix[i0, j] + self.dist_matrix[j, i1] + self.dist_matrix[j0, i] + self.dist_matrix[
+                    i, j1]
             deltas.append(new - current)
         best_i = np.argmin(deltas)
         path.pop()
         if deltas[best_i] >= 0:
             return False, path, cost
-        best_pair = pairs[best_i]
+        best_pair = self.pairs[best_i]
         a, b = path[best_pair[0]], path[best_pair[1]]
         path[best_pair[0]] = b
         path[best_pair[1]] = a
@@ -302,11 +306,10 @@ class SteepestLocalSearchTSP(TSP):
 
     def two_edges_exchange(self, init_path, cost):
         path = copy.deepcopy(init_path)
-        pairs = list(itertools.combinations(np.arange(len(path)), 2))
         path.append(path[0])
         deltas = []
 
-        for pair in pairs:
+        for pair in self.pairs:
             a, b = pair
             if b - a > 2:
                 i1, i2, j1, j2 = path[a], path[a + 1], path[b - 1], path[b]
@@ -319,7 +322,7 @@ class SteepestLocalSearchTSP(TSP):
         path.pop()
         if deltas[best_i] >= 0:
             return False, path, cost
-        a, b = pairs[best_i]
+        a, b = self.pairs[best_i]
         path[a + 1:b] = path[b - 1:a:-1]
         return True, path, cost + deltas[best_i]
 
@@ -334,7 +337,8 @@ class SteepestLocalSearchTSP(TSP):
             a, b = pair
             current = self.dist_matrix[path[a], path[a + 1]] + self.dist_matrix[path[a + 1], path[a + 2]] + self.costs[
                 path[a + 1]]
-            new = self.dist_matrix[path[a], not_selected[b]] + self.dist_matrix[not_selected[b], path[a + 2]] + self.costs[not_selected[b]]
+            new = self.dist_matrix[path[a], not_selected[b]] + self.dist_matrix[not_selected[b], path[a + 2]] + \
+                  self.costs[not_selected[b]]
             deltas.append(new - current)
         best_i = np.argmin(deltas)
         path.pop(0)
@@ -367,7 +371,7 @@ class SteepestLocalSearchTSP(TSP):
 
 
 if __name__ == '__main__':
-    nnTSP = SteepestLocalSearchTSP('../data/TSPC.csv', 'edges', 'random')
+    nnTSP = GreedyLocalSearchTSP('../data/TSPC.csv', 'edges', 'random')
     print(nnTSP.n)
     start = time.time()
     print(nnTSP.run_algorithm(0))
