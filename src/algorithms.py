@@ -172,20 +172,30 @@ class GreedyCycleRegretTSP(TSP):
         return int(costs + dists), path
 
 
-class GreedyLocalSearchTSP(TSP):
-    def __init__(self, nodes_path: str, exchange: str, init_solution: str):
+class LocalSearchTSP(TSP):
+    def __init__(self, algorithm: str, nodes_path: str, exchange: str, init_solution: str):
         super().__init__(nodes_path)
 
-        self.exchange = exchange
         pairs = list(itertools.combinations(np.arange(int(np.ceil(self.n * 0.5))), 2))
         pairs = list(zip(['p' for _ in range(len(pairs))], pairs))
         nodes = list(itertools.product(np.arange(int(np.ceil(self.n * 0.5))), np.arange(self.n - int(np.ceil(self.n * 0.5)))))
         nodes = list(zip(['n' for _ in range(len(nodes))], nodes))
         self.all = pairs + nodes
+        self.exchange = exchange
+
         if init_solution == 'random':
             self.init_solution = RandomTSP(nodes_path)
         elif init_solution == 'greedy_cycle':
             self.init_solution = GreedyCycleTSP(nodes_path)
+        else:
+            raise ValueError('init solution should be random or greedy_cycle')
+
+        if algorithm == 'greedy':
+            self.loop = self.greedy_loop
+        elif algorithm == 'steepest':
+            self.loop = self.steepest_loop
+        else:
+            raise ValueError('init solution should be greedy or steepest')
 
     def two_nodes_exchange(self, path, cost, pair):
         path.append(path[0])
@@ -200,10 +210,7 @@ class GreedyLocalSearchTSP(TSP):
             new = self.dist_matrix[i0, j] + self.dist_matrix[j, i1] + self.dist_matrix[j0, i] + self.dist_matrix[
                 i, j1]
         path.pop()
-        if new - current < 0:
-            path[a], path[b] = path[b], path[a]
-            return True, path, cost + new - current
-        return False, path, cost
+        return new - current
 
     def two_edges_exchange(self, path, cost, pair):
         path.append(path[0])
@@ -215,10 +222,7 @@ class GreedyLocalSearchTSP(TSP):
         else:
             new, current = 0, 0
         path.pop()
-        if new - current < 0:
-            path[a + 1:b] = path[b - 1:a:-1]
-            return True, path, cost + new - current
-        return False, path, cost
+        return new - current
 
     def node_select(self, path, cost, pair, not_selected):
         a, b = pair
@@ -230,139 +234,79 @@ class GreedyLocalSearchTSP(TSP):
               self.costs[not_selected[b]]
         path.pop(0)
         path.pop()
-        if new - current < 0:
-            path[a] = not_selected[b]
-            return True, path, cost + new - current
+        return new - current
+
+    def greedy_loop(self, init_path, cost):
+        path = copy.deepcopy(init_path)
+        np.random.shuffle(self.all)
+        not_selected = list(set(range(self.n)) - set(path))
+        for entry in self.all:
+            t, pair = entry
+            if t == 'p':
+                if self.exchange == 'nodes':
+                    delta = self.two_nodes_exchange(path, cost, pair)
+                    if delta < 0:
+                        a, b = pair
+                        path[a], path[b] = path[b], path[a]
+                        cost += delta
+                        return True, path, cost
+                elif self.exchange == 'edges':
+                    delta = self.two_edges_exchange(path, cost, pair)
+                    if delta < 0:
+                        a, b = pair
+                        path[a + 1:b] = path[b - 1:a:-1]
+                        cost += delta
+                        return True, path, cost
+            else:
+                delta = self.node_select(path, cost, pair, not_selected)
+                if delta < 0:
+                    a, b = pair
+                    path[a] = not_selected[b]
+                    cost += delta
+                    return True, path, cost
+        return False, path, cost
+
+    def steepest_loop(self, init_path, cost):
+        path = copy.deepcopy(init_path)
+        not_selected = list(set(range(self.n)) - set(path))
+        best_delta, best_pair, best_t = 0, None, None
+        for entry in self.all:
+            t, pair = entry
+            if t == 'p':
+                if self.exchange == 'nodes':
+                    delta = self.two_nodes_exchange(path, cost, pair)
+                elif self.exchange == 'edges':
+                    delta = self.two_edges_exchange(path, cost, pair)
+                else:
+                    delta = 0
+            else:
+                delta = self.node_select(path, cost, pair, not_selected)
+            if delta < best_delta:
+                best_delta, best_pair, best_t = delta, pair, t
+        if best_delta < 0:
+            a, b = best_pair
+            if best_t == 'p':
+                if self.exchange == 'nodes':
+                    path[a], path[b] = path[b], path[a]
+                    return True, path, cost + best_delta
+                elif self.exchange == 'edges':
+                    path[a + 1:b] = path[b - 1:a:-1]
+                    return True, path, cost + best_delta
+            else:
+                path[a] = not_selected[b]
+                return True, path, cost + best_delta
         return False, path, cost
 
     def run_algorithm(self, starting_node: int):
         cost, path = self.init_solution.run_algorithm(starting_node)
         better = True
         while better:
-            np.random.shuffle(self.all)
-            not_selected = list(set(range(self.n)) - set(path))
-            for entry in self.all:
-                t, pair = entry
-                if t == 'p':
-                    if self.exchange == 'nodes':
-                        better, path, cost = self.two_nodes_exchange(path, cost, pair)
-                    elif self.exchange == 'edges':
-                        better, path, cost = self.two_edges_exchange(path, cost, pair)
-                    else:
-                        better, path, cost = False, path, cost
-                elif t == 'n':
-                    better, path, cost = self.node_select(path, cost, pair, not_selected)
-                if better:
-                    break
-        return cost, path
-
-
-class SteepestLocalSearchTSP(TSP):
-    def __init__(self, nodes_path: str, exchange: str, init_solution: str):
-        super().__init__(nodes_path)
-
-        self.exchange = exchange
-        self.pairs = list(itertools.combinations(np.arange(int(np.ceil(self.n * 0.5))), 2))
-
-        if init_solution == 'random':
-            self.init_solution = RandomTSP(nodes_path)
-        elif init_solution == 'greedy_cycle':
-            self.init_solution = GreedyCycleTSP(nodes_path)
-
-    def two_nodes_exchange(self, init_path, cost):
-        path = copy.deepcopy(init_path)
-        path.append(path[0])
-        deltas = []
-        for pair in self.pairs:
-            a, b = pair
-            i0, i, i1, j0, j, j1 = path[a - 1], path[a], path[a + 1], path[b - 1], path[b], path[b + 1]
-            if b - a == 1:
-                current = self.dist_matrix[i0, i] + self.dist_matrix[j, j1]
-                new = self.dist_matrix[i0, j] + self.dist_matrix[i, j1]
-            else:
-                current = self.dist_matrix[i0, i] + self.dist_matrix[i, i1] + self.dist_matrix[j0, j] + \
-                          self.dist_matrix[j, j1]
-                new = self.dist_matrix[i0, j] + self.dist_matrix[j, i1] + self.dist_matrix[j0, i] + self.dist_matrix[
-                    i, j1]
-            deltas.append(new - current)
-        best_i = np.argmin(deltas)
-        path.pop()
-        if deltas[best_i] >= 0:
-            return False, path, cost
-        best_pair = self.pairs[best_i]
-        a, b = path[best_pair[0]], path[best_pair[1]]
-        path[best_pair[0]] = b
-        path[best_pair[1]] = a
-        return True, path, cost + deltas[best_i]
-
-    def two_edges_exchange(self, init_path, cost):
-        path = copy.deepcopy(init_path)
-        path.append(path[0])
-        deltas = []
-
-        for pair in self.pairs:
-            a, b = pair
-            if b - a > 2:
-                i1, i2, j1, j2 = path[a], path[a + 1], path[b - 1], path[b]
-                current = self.dist_matrix[i1, i2] + self.dist_matrix[j1, j2]
-                new = self.dist_matrix[i1, j1] + self.dist_matrix[i2, j2]
-                deltas.append(new - current)
-            else:
-                deltas.append(None)
-        best_i = np.nanargmin(deltas)
-        path.pop()
-        if deltas[best_i] >= 0:
-            return False, path, cost
-        a, b = self.pairs[best_i]
-        path[a + 1:b] = path[b - 1:a:-1]
-        return True, path, cost + deltas[best_i]
-
-    def node_select(self, init_path, cost):
-        path = copy.deepcopy(init_path)
-        not_selected = list(set(range(self.n)) - set(path))
-        pairs = list(itertools.product(np.arange(len(path)), np.arange(len(not_selected))))
-        path.insert(0, path[-1])
-        path.append(path[1])
-        deltas = []
-        for pair in pairs:
-            a, b = pair
-            current = self.dist_matrix[path[a], path[a + 1]] + self.dist_matrix[path[a + 1], path[a + 2]] + self.costs[
-                path[a + 1]]
-            new = self.dist_matrix[path[a], not_selected[b]] + self.dist_matrix[not_selected[b], path[a + 2]] + \
-                  self.costs[not_selected[b]]
-            deltas.append(new - current)
-        best_i = np.argmin(deltas)
-        path.pop(0)
-        path.pop()
-        if deltas[best_i] >= 0:
-            return False, path, cost
-        best_pair = pairs[best_i]
-        path[best_pair[0]] = not_selected[best_pair[1]]
-        return True, path, cost + deltas[best_i]
-
-    def run_algorithm(self, starting_node: int):
-        cost, path = self.init_solution.run_algorithm(starting_node)
-        better = True
-        while better:
-            if self.exchange == 'nodes':
-                better0, path0, cost0 = self.two_nodes_exchange(path, cost)
-            elif self.exchange == 'edges':
-                better0, path0, cost0 = self.two_nodes_exchange(path, cost)
-            else:
-                better0, path0, cost0 = False, path, cost
-            better1, path1, cost1 = self.node_select(path, cost)
-            if better0 or better1:
-                if cost0 < cost1:
-                    path, cost = path0, cost0
-                else:
-                    path, cost = path1, cost1
-            else:
-                better = False
+            better, path, cost = self.loop(path, cost)
         return cost, path
 
 
 if __name__ == '__main__':
-    nnTSP = GreedyLocalSearchTSP('../data/TSPA.csv', 'nodes', 'random')
+    nnTSP = LocalSearchTSP('greedy', '../data/TSPA.csv', 'edges', 'random')
     print(nnTSP.n)
     start = time.time()
     print(nnTSP.run_algorithm(0))
