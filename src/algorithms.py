@@ -27,20 +27,22 @@ class TSP(ABC):
         :return: (min, max, avg, edges, start) - min, max , avg value of objective function, additionally for minimal
         value of objective returns edges and starting node
         """
-        minv, maxv, avgv = np.inf, -np.inf, 0
-        min_edges, starting_node = None, None
+        minv, maxv, avgv, avg_time = np.inf, -np.inf, 0, 0
+        min_path, starting_node = None, None
         for i in range(self.n):
-            objective, edges = self.run_algorithm(i)
-
+            time_start = time.time()
+            objective, path = self.run_algorithm(i)
+            time_diff = time.time() - time_start
+            avg_time += time_diff
             avgv += objective
             if objective > maxv:
                 maxv = objective
             if objective < minv:
                 minv = objective
-                min_edges = edges
+                min_path = path
                 starting_node = i
 
-        return minv, maxv, avgv / self.n, min_edges, starting_node
+        return avg_time / self.n, minv, maxv, avgv / self.n, min_path, starting_node
 
     @abstractmethod
     def run_algorithm(self, starting_node: int):
@@ -197,7 +199,7 @@ class LocalSearchTSP(TSP):
         else:
             raise ValueError('init solution should be greedy or steepest')
 
-    def two_nodes_exchange(self, path, cost, pair):
+    def two_nodes_exchange(self, path, pair):
         path.append(path[0])
         a, b = pair
         i0, i, i1, j0, j, j1 = path[a - 1], path[a], path[a + 1], path[b - 1], path[b], path[b + 1]
@@ -212,7 +214,7 @@ class LocalSearchTSP(TSP):
         path.pop()
         return new - current
 
-    def two_edges_exchange(self, path, cost, pair):
+    def two_edges_exchange(self, path, pair):
         path.append(path[0])
         a, b = pair
         if b - a > 2:
@@ -224,7 +226,7 @@ class LocalSearchTSP(TSP):
         path.pop()
         return new - current
 
-    def node_select(self, path, cost, pair, not_selected):
+    def node_select(self, path, pair, not_selected):
         a, b = pair
         path.insert(0, path[-1])
         path.append(path[1])
@@ -244,21 +246,21 @@ class LocalSearchTSP(TSP):
             t, pair = entry
             if t == 'p':
                 if self.exchange == 'nodes':
-                    delta = self.two_nodes_exchange(path, cost, pair)
+                    delta = self.two_nodes_exchange(path, pair)
                     if delta < 0:
                         a, b = pair
                         path[a], path[b] = path[b], path[a]
                         cost += delta
                         return True, path, cost
                 elif self.exchange == 'edges':
-                    delta = self.two_edges_exchange(path, cost, pair)
+                    delta = self.two_edges_exchange(path, pair)
                     if delta < 0:
                         a, b = pair
                         path[a + 1:b] = path[b - 1:a:-1]
                         cost += delta
                         return True, path, cost
             else:
-                delta = self.node_select(path, cost, pair, not_selected)
+                delta = self.node_select(path, pair, not_selected)
                 if delta < 0:
                     a, b = pair
                     path[a] = not_selected[b]
@@ -274,13 +276,13 @@ class LocalSearchTSP(TSP):
             t, pair = entry
             if t == 'p':
                 if self.exchange == 'nodes':
-                    delta = self.two_nodes_exchange(path, cost, pair)
+                    delta = self.two_nodes_exchange(path, pair)
                 elif self.exchange == 'edges':
-                    delta = self.two_edges_exchange(path, cost, pair)
+                    delta = self.two_edges_exchange(path, pair)
                 else:
                     delta = 0
             else:
-                delta = self.node_select(path, cost, pair, not_selected)
+                delta = self.node_select(path, pair, not_selected)
             if delta < best_delta:
                 best_delta, best_pair, best_t = delta, pair, t
         if best_delta < 0:
