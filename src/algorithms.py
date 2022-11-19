@@ -369,7 +369,6 @@ class CandidateSteepestLocalSearchTSP(TSP):
         for entry in self.all:
             t, pair = entry
             if t == 'p':
-                a = self.nn_edges[pair[0], pair[1]]
                 try:
                     place = path.index(self.nn_edges[pair[0], pair[1]])
                 except:
@@ -380,7 +379,6 @@ class CandidateSteepestLocalSearchTSP(TSP):
                 else:
                     delta = 0
             else:
-                a = self.nn_nodes[pair[0], pair[1]]
                 if self.nn_nodes[pair[0], pair[1]] not in path:
                     pair = [pair[0], self.nn_nodes[pair[0], pair[1]]]
                     delta = self.node_select(path, pair)
