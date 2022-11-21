@@ -10,7 +10,7 @@ import numpy as np
 class TSP(ABC):
     """
     Abstract class for different algorithms solving the TSP problem
-    :param nodes_path: path to a file containing information about (x,y) coordinates and costs for fiven nodes
+    :param nodes_path: path to a file containing information about (x,y) coordinates and costs for given nodes
     """
 
     def __init__(self, nodes_path: str):
@@ -343,7 +343,7 @@ class CandidateSteepestLocalSearchTSP(TSP):
     def two_edges_exchange(self, path, pair):
         path.append(path[0])
         a, b = pair
-        if b - a > 2:
+        if b - a > 2 and path[a] != path[b]:
             i1, i2, j1, j2 = path[a], path[a + 1], path[b - 1], path[b]
             current = self.dist_matrix[i1, i2] + self.dist_matrix[j1, j2]
             new = self.dist_matrix[i1, j1] + self.dist_matrix[i2, j2]
@@ -374,8 +374,14 @@ class CandidateSteepestLocalSearchTSP(TSP):
                 except:
                     place = None
                 if place is not None:
-                    pair = [pair[0], place]
-                    delta = self.two_edges_exchange(path, pair)
+                    pair1 = [pair[0], place]
+                    delta1 = self.two_edges_exchange(path, pair1)
+                    pair2 = [pair[0], place + 1]
+                    delta2 = self.two_edges_exchange(path, pair2)
+                    if delta1 > delta2:
+                        delta, pair = delta2, pair2
+                    else:
+                        delta, pair = delta1, pair1
                 else:
                     delta = 0
             else:
@@ -405,7 +411,7 @@ class CandidateSteepestLocalSearchTSP(TSP):
 
 
 if __name__ == '__main__':
-    nnTSP = CandidateSteepestLocalSearchTSP('../data/TSPA.csv', 10)
+    nnTSP = CandidateSteepestLocalSearchTSP('../data/TSPC.csv', 10)
     print(nnTSP.n)
     start = time.time()
     print(nnTSP.run_algorithm(0))
