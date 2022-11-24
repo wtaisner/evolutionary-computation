@@ -66,6 +66,7 @@ class RandomTSP(TSP):
     """
 
     def run_algorithm(self, starting_node: int):
+        np.random.seed(starting_node)
         path = [starting_node]
         perc_50 = int(np.ceil(self.n * 0.5))
         nodes = np.arange(0, self.n)
@@ -184,7 +185,7 @@ class LocalSearchTSP(TSP):
         super().__init__(nodes_path)
 
         time_start = time.time()
-        pairs = list(itertools.combinations(np.arange(int(np.ceil(self.n * 0.5))), 2))
+        pairs = list(itertools.product(np.arange(int(np.ceil(self.n * 0.5))), np.arange(int(np.ceil(self.n * 0.5)) + 1)))
         pairs = list(zip(['p' for _ in range(len(pairs))], pairs))
         nodes = list(
             itertools.product(np.arange(int(np.ceil(self.n * 0.5))), np.arange(self.n - int(np.ceil(self.n * 0.5)))))
@@ -264,7 +265,7 @@ class LocalSearchTSP(TSP):
                     delta = self.two_edges_exchange(path, pair)
                     if delta < 0:
                         a, b = pair
-                        path[a + 1:b] = path[b - 1:a:-1]
+                        path[a + 1:b] = path[a + 1:b][::-1]
                         cost += delta
                         return True, path, cost
             else:
@@ -300,7 +301,7 @@ class LocalSearchTSP(TSP):
                     path[a], path[b] = path[b], path[a]
                     return True, path, cost + best_delta
                 elif self.exchange == 'edges':
-                    path[a + 1:b] = path[b - 1:a:-1]
+                    path[a + 1:b] = path[a+1:b][::-1]
                     return True, path, cost + best_delta
             else:
                 path[a] = not_selected[b]
@@ -341,8 +342,9 @@ class CandidateSteepestLocalSearchTSP(TSP):
         self.time_init = time.time() - time_start
 
     def two_edges_exchange(self, path, pair):
-        path.append(path[0])
-        a, b = pair
+        path.insert(0, path[-1])
+        path.append(path[1])
+        a, b = pair[0] + 1, pair[1] + 1
         if b - a > 2 and path[a] != path[b]:
             i1, i2, j1, j2 = path[a], path[a + 1], path[b - 1], path[b]
             current = self.dist_matrix[i1, i2] + self.dist_matrix[j1, j2]
@@ -350,6 +352,7 @@ class CandidateSteepestLocalSearchTSP(TSP):
         else:
             new, current = 0, 0
         path.pop()
+        path.pop(0)
         return new - current
 
     def node_select(self, path, pair):
@@ -370,13 +373,21 @@ class CandidateSteepestLocalSearchTSP(TSP):
             t, pair = entry
             if t == 'p':
                 try:
-                    place = path.index(self.nn_edges[pair[0], pair[1]])
+                    place = path.index(self.nn_edges[path[pair[0]], pair[1]])
                 except:
                     place = None
                 if place is not None:
-                    pair1 = [pair[0], place]
+                    if pair[0] > place:
+                        a1, b1 = place, pair[0] + 1
+                        a2, b2 = place - 1, pair[0]
+                    else:
+                        a1, b1 = pair[0], place + 1
+                        a2, b2 = pair[0] - 1, place
+                    if a2 < 0 and b1 - a1 > 2:
+                        a2, b2 = b2 - 1, len(path)
+                    pair1 = [a1, b1]
                     delta1 = self.two_edges_exchange(path, pair1)
-                    pair2 = [pair[0], place + 1]
+                    pair2 = [a2, b2]
                     delta2 = self.two_edges_exchange(path, pair2)
                     if delta1 > delta2:
                         delta, pair = delta2, pair2
@@ -385,8 +396,8 @@ class CandidateSteepestLocalSearchTSP(TSP):
                 else:
                     delta = 0
             else:
-                if self.nn_nodes[pair[0], pair[1]] not in path:
-                    pair = [pair[0], self.nn_nodes[pair[0], pair[1]]]
+                if self.nn_nodes[path[pair[0]], pair[1]] not in path:
+                    pair = [pair[0], self.nn_nodes[path[pair[0]], pair[1]]]
                     delta = self.node_select(path, pair)
                 else:
                     delta = 0
@@ -395,7 +406,7 @@ class CandidateSteepestLocalSearchTSP(TSP):
         if best_delta < 0:
             a, b = best_pair
             if best_t == 'p':
-                path[a + 1:b] = path[b - 1:a:-1]
+                path[a + 1:b] = path[a + 1: b][::-1]
                 return True, path, cost + best_delta
             else:
                 path[a] = b
@@ -407,6 +418,7 @@ class CandidateSteepestLocalSearchTSP(TSP):
         better = True
         while better:
             better, path, cost = self.loop(path, cost)
+            #print(path)
         return cost, path
 
 
@@ -414,5 +426,15 @@ if __name__ == '__main__':
     nnTSP = CandidateSteepestLocalSearchTSP('../data/TSPC.csv', 10)
     print(nnTSP.n)
     start = time.time()
-    print(nnTSP.run_algorithm(0))
+    cost, path = nnTSP.run_algorithm(4)
+    print(cost, path)
+    print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
+    print(time.time() - start)
+
+    nnTSP = LocalSearchTSP('steepest', '../data/TSPC.csv', 'edges', 'random')
+    print(nnTSP.n)
+    start = time.time()
+    cost, path = nnTSP.run_algorithm(4)
+    print(cost, path)
+    print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
     print(time.time() - start)
