@@ -16,10 +16,23 @@ class TSP(ABC):
     def __init__(self, nodes_path: str):
         nodes = np.genfromtxt(nodes_path, dtype=float, delimiter=';')
         self.costs = nodes[:, 2]
+        self.costs = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
         self.n = len(self.costs)
 
         coords = nodes[:, :2]
         self.dist_matrix = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1).round()
+        self.dist_matrix = np.array([
+            [0, 1, 2, 3, 4, 5, 4, 3, 2, 1],
+            [1, 0, 1, 2, 3, 4, 5, 4, 3, 2],
+            [2, 1, 0, 1, 2, 3, 4, 5, 4, 3],
+            [3, 2, 1, 0, 1, 2, 3, 4, 5, 4],
+            [4, 3, 2, 1, 0, 1, 2, 3, 4, 5],
+            [5, 4, 3, 2, 1, 0, 1, 2, 3, 4],
+            [4, 5, 4, 3, 2, 1, 0, 1, 2, 3],
+            [3, 4, 5, 4, 3, 2, 1, 0, 1, 2],
+            [2, 3, 4, 5, 4, 3, 2, 1, 0, 1],
+            [1, 2, 3, 4, 5, 4, 3, 2, 1, 0]
+        ])
         self.time_init = 0
 
     def run_experiment(self):
@@ -414,16 +427,193 @@ class CandidateSteepestLocalSearchTSP(TSP):
         return False, path, cost
 
     def run_algorithm(self, starting_node: int):
-        cost, path = self.init_solution.run_algorithm(starting_node)
+        cost, path = 21, [0, 1, 5, 8, 3] #self.init_solution.run_algorithm(starting_node)
         better = True
         while better:
             better, path, cost = self.loop(path, cost)
-            #print(path)
+        return cost, path
+
+
+class DeltaListSteepestLocalSearchTSP(TSP):
+    def __init__(self, nodes_path: str):
+        super().__init__(nodes_path)
+        time_start = time.time()
+
+        pairs = list(
+            itertools.product(np.arange(int(np.ceil(self.n * 0.5))), np.arange(int(np.ceil(self.n * 0.5)) + 1)))
+        pairs = list(zip(['p' for _ in range(len(pairs))], pairs))
+        nodes = list(
+            itertools.product(np.arange(int(np.ceil(self.n * 0.5))), np.arange(self.n - int(np.ceil(self.n * 0.5)))))
+        nodes = list(zip(['n' for _ in range(len(nodes))], nodes))
+        self.all = pairs + nodes
+        self.improving_moves = []
+
+        self.loop = self.steepest_loop
+
+        self.init_solution = RandomTSP(nodes_path)
+        self.time_init = time.time() - time_start
+
+    def node_select(self, path, idx_node_in_path, node_not_in_path):
+        a = idx_node_in_path
+        path.insert(0, path[-1])
+        path.append(path[1])
+        current = self.dist_matrix[path[a], path[a + 1]] + self.dist_matrix[path[a + 1], path[a + 2]] + self.costs[
+            path[a + 1]]
+        new = self.dist_matrix[path[a], node_not_in_path] + self.dist_matrix[node_not_in_path, path[a + 2]] + \
+              self.costs[node_not_in_path]
+        path.pop(0)
+        path.pop()
+        return new - current
+
+    def two_edges_exchange(self, edges):
+        edge1, edge2 = edges
+        i1, i2, j1, j2 = edge1[0], edge1[1], edge2[0], edge2[1]
+        current = self.dist_matrix[i1, i2] + self.dist_matrix[j1, j2]
+        new = self.dist_matrix[i1, j1] + self.dist_matrix[i2, j2]
+        return new - current
+
+    def calculate_all_moves(self, init_path):
+        path = copy.deepcopy(init_path)
+        not_selected = list(set(range(self.n)) - set(path))
+        for entry in self.all:
+            t, pair = entry
+            if t == 'p':
+                path.append(path[0])
+                a, b = pair
+                e1, e2 = [path[a], path[a + 1]], [path[b - 1], path[b]]
+                edges = [[e1, e2], [e1[::-1], e2], [e1, e2[::-1]], [e1[::-1], e2[::-1]]]
+                for edge in edges:
+                    if not(edge[0][0] in edge[1] or edge[0][1] in edge[1]):
+                        delta = self.two_edges_exchange(edge)
+                        if delta < 0:
+                            self.improving_moves.append([delta, ['p', edge]])
+                path.pop()
+            else:
+                a, b = pair
+                node_not_in_path = not_selected[b]
+                delta = self.node_select(path, a, node_not_in_path)
+                if delta < 0:
+                    path.insert(0, path[-1])
+                    path.append(path[1])
+                    e1, e2 = [path[a - 1], path[a], path[a + 1]], [path[a - 1], node_not_in_path, path[a + 1]]
+                    self.improving_moves.append([delta, ['n', [e1, e2]]])
+                    self.improving_moves.append([delta, ['n', [e1[::-1], e2[::-1]]]])
+                    path.pop()
+                    path.pop(0)
+        self.improving_moves.sort(key=lambda x: x[0])
+
+    @staticmethod
+    def check_applicable(path, move):
+        e1, e2 = move
+        if len(e1) == 2:
+            try:
+                path.append(path[0])
+                a1, b1, a2, b2 = len(path) - 1 - path[::-1].index(e1[0]), len(path) - 1 - path[::-1].index(e1[1]), \
+                                 len(path) - 1 - path[::-1].index(e2[0]), len(path) - 1 - path[::-1].index(e2[1])
+                path.pop()
+            except:
+                path.pop()
+                return False, False
+            if a1 < b1 and a2 < b2:
+                return True, False
+            else:
+                return False, True
+        else:
+            try:
+                path.insert(0, path[-1])
+                path.append(path[1])
+                a00, a10, a20 = len(path) - 1 - path[::-1].index(e1[0]), len(path) - 1 - path[::-1].index(e1[1]), len(path) - 1 - path[::-1].index(e1[2])
+                a01, a11, a21 = path.index(e1[0]), path.index(e1[1]), path.index(e1[2])
+                path.pop()
+                path.pop(0)
+            except:
+                path.pop()
+                path.pop(0)
+                return False, False
+            if a00 < a10 < a20 or a01 < a11 < a21:
+                try:
+                    b = path.index(e2[1])
+                except:
+                    return True, False
+            return False, False
+
+    def add_new_moves_edge_exchange(self, path, change):
+        path.append(path[0])
+        edges = np.arange(len(path))
+        for e in edges:
+            e1 = [path[e], path[e + 1]]
+            for a in change:
+                e2 = [path[a], path[a + 1]]
+                edges = [[e1, e2], [e1[::-1], e2], [e1, e2[::-1]], [e1[::-1], e2[::-1]]]
+                for edge in edges:
+                    delta = self.two_edges_exchange(edge)
+                    if delta < 0:
+                        self.improving_moves.append([delta, ['p', edge]])
+
+    def add_new_moves_node_select(self, path, change):
+        not_selected = list(set(range(self.n)) - set(path))
+        for b in not_selected:
+            delta = self.node_select(path, change, b)
+            if delta < 0:
+                path.insert(0, path[-1])
+                path.append(path[1])
+                e0, e1, e2 = path[change - 1], path[change], path[change + 1]
+                move = ['n', [[e0, e1, e2], [e0, b, e2]]]
+                path.pop()
+                path.pop(0)
+                self.improving_moves.append([delta, move])
+
+    def steepest_loop(self, path, cost):
+        to_delete = []
+        best_move_idx = None
+        for i, entry in enumerate(self.improving_moves):
+            delta, move = entry
+            applicable, stay = self.check_applicable(path, move[1])
+            if applicable:
+                to_delete.append(i)
+                best_move_idx = i
+                break
+            elif not applicable and not stay:
+                to_delete.append(i)
+        if best_move_idx is not None:
+            best_move = self.improving_moves[best_move_idx]
+        else:
+            return False, path, cost
+        self.improving_moves = [self.improving_moves[i] for i, _ in enumerate(self.improving_moves) if i not in to_delete]
+        if best_move is not None:
+            delta, move = best_move
+            move_type, change = move
+            if move_type == 'p':
+                e1, e2 = change
+                path.append(path[0])
+                a1, b1, a2, b2 = len(path) - 1 - path[::-1].index(e1[0]), len(path) - 1 - path[::-1].index(e1[1]), \
+                                 len(path) - 1 - path[::-1].index(e2[0]), len(path) - 1 - path[::-1].index(e2[1])
+                path.pop()
+                if a1 > a2:
+                    a2, b2, a1, b1 = a1, b1, a2, b2
+                path[b1:b2] = path[b1:b2][::-1]
+                change = [b1 - 1, b2 - 1]
+                self.add_new_moves_edge_exchange(path, change)
+            else:
+                e1, e2 = change
+                a, b = path.index(e1[1]), e2[1]
+                path[a] = b
+                self.add_new_moves_node_select(path, a)
+            self.improving_moves.sort(key=lambda x: x[0])
+            return True, path, cost + delta
+
+    def run_algorithm(self, starting_node: int):
+        cost, path = 21, [0, 1, 5, 8, 3] #self.init_solution.run_algorithm(starting_node)
+        self.calculate_all_moves(path)
+        better = True
+        while better:
+            better, path, cost = self.loop(path, cost)
+            a = 0
         return cost, path
 
 
 if __name__ == '__main__':
-    nnTSP = CandidateSteepestLocalSearchTSP('../data/TSPC.csv', 10)
+    nnTSP = DeltaListSteepestLocalSearchTSP('../data/TSPC.csv')
     print(nnTSP.n)
     start = time.time()
     cost, path = nnTSP.run_algorithm(4)
