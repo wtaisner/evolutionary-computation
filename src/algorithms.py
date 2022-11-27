@@ -317,9 +317,10 @@ class LocalSearchTSP(TSP):
                     path[a], path[b] = path[b], path[a]
                     return True, path, cost + best_delta
                 elif self.exchange == 'edges':
+                    save = [best_delta, [[path[a], path[(a + 1) % len(path)]], [path[b - 1], path[b % len(path)]]]]
                     path[a + 1:b] = path[a+1:b][::-1]
-                    self.best_deltas.append(
-                        [best_delta, [[path[a], path[(a + 1) % len(path)]], [path[b - 1], path[b % len(path)]]], path])
+                    save.append(path)
+                    self.best_deltas.append(save)
 
                     return True, path, cost + best_delta
             else:
@@ -435,7 +436,7 @@ class CandidateSteepestLocalSearchTSP(TSP):
         return False, path, cost
 
     def run_algorithm(self, starting_node: int):
-        cost, path = 21, [0, 1, 5, 8, 3] #self.init_solution.run_algorithm(starting_node)
+        cost, path = self.init_solution.run_algorithm(starting_node)
         better = True
         while better:
             better, path, cost = self.loop(path, cost)
@@ -521,14 +522,17 @@ class DeltaListSteepestLocalSearchTSP(TSP):
         if len(e1) == 2:
             try:
                 path.append(path[0])
-                a1, b1, a2, b2 = len(path) - 1 - path[::-1].index(e1[0]), len(path) - 1 - path[::-1].index(e1[1]), \
+                a10, b10, a20, b20 = len(path) - 1 - path[::-1].index(e1[0]), len(path) - 1 - path[::-1].index(e1[1]), \
                                  len(path) - 1 - path[::-1].index(e2[0]), len(path) - 1 - path[::-1].index(e2[1])
+                a11, b11, a21, b21 = path.index(e1[0]), path.index(e1[1]), path.index(e2[0]), path.index(e2[1])
                 path.pop()
             except:
                 path.pop()
                 return False, False, None
-            if b1 - a1 == 1 and b2 - a2 == 1:
-                return True, False, [a1, b1, a2, b2]
+            if b10 - a10 == 1 and b20 - a20 == 1:
+                return True, False, [a10, b10, a20, b20]
+            if b11 - a11 == 1 and b21 - a21 == 1:
+                return True, False, [a11, b11, a21, b21]
             else:
                 return False, True, None
         else:
@@ -551,6 +555,7 @@ class DeltaListSteepestLocalSearchTSP(TSP):
             return False, False, None
 
     def add_new_moves_edge_exchange(self, path, change):
+        not_selected = list(set(range(self.n)) - set(path))
         path.append(path[0])
         edges = np.arange(len(path) - 1)
         for e in edges:
@@ -563,9 +568,21 @@ class DeltaListSteepestLocalSearchTSP(TSP):
                     if delta < 0:
                         self.improving_moves.append([delta, ['p', edge]])
         path.pop()
+        ids = [change[0], (change[0] + 1) % len(path), change[1], (change[1] + 1) % len(path)]
+        for b in not_selected:
+            for i in ids:
+                delta = self.node_select(path, i, b)
+                if delta < 0:
+                    path.insert(0, path[-1])
+                    path.append(path[1])
+                    e0, e1, e2 = path[i], path[i + 1], path[i + 2]
+                    m1, m2 = [e0, e1, e2], [e0, b, e2]
+                    path.pop()
+                    path.pop(0)
+                    self.improving_moves.append([delta, ['n', [m1, m2]]])
+                    self.improving_moves.append([delta, ['n', [m1[::-1], m2[::-1]]]])
 
     def add_new_moves_node_select(self, path, change):
-        result = []
         new, removed = change
         not_selected = list(set(range(self.n)) - set(path))
         pred, succ = (new - 1) % len(path), (new + 1) % len(path)
@@ -576,23 +593,25 @@ class DeltaListSteepestLocalSearchTSP(TSP):
                     path.insert(0, path[-1])
                     path.append(path[1])
                     e0, e1, e2 = path[change], path[change + 1], path[change + 2]
-                    move = ['n', [[e0, e1, e2], [e0, b, e2]]]
+                    m1, m2 = [e0, e1, e2], [e0, b, e2]
                     path.pop()
                     path.pop(0)
-                    self.improving_moves.append([delta, move])
+                    self.improving_moves.append([delta, ['n', [m1, m2]]])
+                    self.improving_moves.append([delta, ['n', [m1[::-1], m2[::-1]]]])
+
         for i, a in enumerate(path):
             delta = self.node_select(path, i, removed)
             if delta < 0:
                 path.insert(0, path[-1])
                 path.append(path[1])
                 e0, e1, e2 = path[i], path[i + 1], path[i + 2]
-                move = ['n', [[e0, e1, e2], [e0, removed, e2]]]
+                m1, m2 = [e0, e1, e2], [e0, removed, e2]
                 path.pop()
                 path.pop(0)
-                self.improving_moves.append([delta, move])
-        new_edges = [change, new]
+                self.improving_moves.append([delta, ['n', [m1, m2]]])
+                self.improving_moves.append([delta, ['n', [m1[::-1], m2[::-1]]]])
+        new_edges = [pred, new]
         self.add_new_moves_edge_exchange(path, new_edges)
-        # add edges
 
     def steepest_loop(self, path, cost):
         to_delete = []
@@ -616,12 +635,10 @@ class DeltaListSteepestLocalSearchTSP(TSP):
             delta, move = best_move
             move_type, change = move
             if move_type == 'p':
-                e1, e2 = change
                 a1, b1, a2, b2 = best_change
                 if a1 > a2:
                     a2, b2, a1, b1 = a1, b1, a2, b2
                 path[b1:b2] = path[b1:b2][::-1]
-                self.best_deltas.append([delta, move[1], path])
                 change = [b1 - 1, b2 - 1]
                 self.add_new_moves_edge_exchange(path, change)
             else:
@@ -629,7 +646,6 @@ class DeltaListSteepestLocalSearchTSP(TSP):
                 a, b = path.index(e1[1]), e2[1]
                 removed = path[a]
                 path[a] = b
-                self.best_deltas.append([delta, move[1], path])
                 self.add_new_moves_node_select(path, [a, removed])
             self.improving_moves.sort(key=lambda x: x[0])
             # keys = [m[0] for m in self.improving_moves]
@@ -652,24 +668,15 @@ if __name__ == '__main__':
     nnTSP = DeltaListSteepestLocalSearchTSP('../data/TSPC.csv')
     print(nnTSP.n)
     start = time.time()
-    cost, path = nnTSP.run_algorithm(1)
+    cost, path = nnTSP.run_algorithm(10)
     print(cost, path)
     print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
     print(time.time() - start)
 
-    nnTSP1 = LocalSearchTSP('steepest', '../data/TSPC.csv', 'edges', 'random')
+    nnTSP = LocalSearchTSP('steepest', '../data/TSPC.csv', 'edges', 'random')
     print(nnTSP.n)
     start = time.time()
-    cost, path = nnTSP1.run_algorithm(1)
+    cost, path = nnTSP.run_algorithm(10)
     print(cost, path)
-    print(np.sum(nnTSP1.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP1.costs[path]), path)
+    print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
     print(time.time() - start)
-
-    for i, xy in enumerate(zip(nnTSP.best_deltas, nnTSP1.best_deltas)):
-        x, y = xy
-        print(x[0], y[0], x[1], y[1])
-        if x[0] != y[0]:
-            a, b = nnTSP.best_deltas[i-1], nnTSP1.best_deltas[i-1]
-            print(a)
-            print(b)
-            break
