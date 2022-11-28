@@ -1,9 +1,11 @@
 import bisect
 import copy
 import itertools
+import signal
 import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from typing import List
 
 import numpy as np
 
@@ -19,6 +21,7 @@ class TSP(ABC):
         self.costs = nodes[:, 2]
         # self.costs = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         self.n = len(self.costs)
+        self.experiments = self.n
 
         coords = nodes[:, :2]
         self.dist_matrix = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1).round()
@@ -36,7 +39,7 @@ class TSP(ABC):
         # ])
         self.time_init = 0
 
-    def run_experiment(self):
+    def run_experiment(self, seed: int = None):
         """
         performs function run_algorithm starting from each node
         :return: (min, max, avg, edges, start) - min, max , avg value of objective function, additionally for minimal
@@ -44,10 +47,11 @@ class TSP(ABC):
         """
         minv, maxv, avgv, avg_time, min_time, max_time = np.inf, -np.inf, 0, 0, np.inf, -np.inf
         min_path, starting_node = None, None
-        for i in range(self.n):
+        for i in range(self.experiments):
             time_start = time.time()
-            objective, path = self.run_algorithm(i)
+            objective, path = self.run_algorithm(i, seed=seed)
             time_diff = time.time() - time_start + self.time_init
+            seed += 100
             avg_time += time_diff
             avgv += objective
             if time_diff > max_time:
@@ -61,10 +65,10 @@ class TSP(ABC):
                 min_path = path
                 starting_node = i
 
-        return min_time, max_time, avg_time / self.n, minv, maxv, avgv / self.n, min_path, starting_node
+        return min_time, max_time, avg_time / self.experiments, minv, maxv, avgv / self.experiments, min_path, starting_node
 
     @abstractmethod
-    def run_algorithm(self, starting_node: int):
+    def run_algorithm(self, starting_node: int, **kwargs):
         """
         Abstract method for implementation of given algorithm that solves TSP problem
         :param starting_node: index of the starting node
@@ -79,8 +83,11 @@ class RandomTSP(TSP):
     A class implementing random selection of nodes and random order of the nodes to solve TSP problem
     """
 
-    def run_algorithm(self, starting_node: int):
-        np.random.seed(starting_node)
+    def run_algorithm(self, starting_node: int, seed: int = None):
+        if seed is None:
+            np.random.seed(starting_node)
+        else:
+            np.random.seed(seed)
         path = [starting_node]
         perc_50 = int(np.ceil(self.n * 0.5))
         nodes = np.arange(0, self.n)
@@ -96,7 +103,7 @@ class NearestNeighbourTSP(TSP):
     A class implementing the nearest neighbour method for solving the TSP problem
     """
 
-    def run_algorithm(self, starting_node: int):
+    def run_algorithm(self, starting_node: int, **kwargs):
         perc_50 = int(np.ceil(self.n * 0.5))
         path = [starting_node]
         distances = 0
@@ -120,7 +127,7 @@ class GreedyCycleTSP(TSP):
     A class implementing greedy cycle method for solving the TSP problem
     """
 
-    def run_algorithm(self, starting_node: int):
+    def run_algorithm(self, starting_node: int, **kwargs):
         perc_50 = int(np.ceil(self.n * 0.5))
         dist_matrix = deepcopy(self.dist_matrix)
         dist = dist_matrix[starting_node, :]
@@ -163,7 +170,7 @@ class GreedyCycleRegretTSP(TSP):
         self.k = k
         self.weight = weight
 
-    def run_algorithm(self, starting_node: int):
+    def run_algorithm(self, starting_node: int, **kwargs):
         perc_50 = int(np.ceil(self.n * 0.5))
         dist_matrix = deepcopy(self.dist_matrix)
         dist = dist_matrix[starting_node, :]
@@ -199,7 +206,8 @@ class LocalSearchTSP(TSP):
         super().__init__(nodes_path)
 
         time_start = time.time()
-        pairs = list(itertools.product(np.arange(int(np.ceil(self.n * 0.5))), np.arange(int(np.ceil(self.n * 0.5)) + 1)))
+        pairs = list(
+            itertools.product(np.arange(int(np.ceil(self.n * 0.5))), np.arange(int(np.ceil(self.n * 0.5)) + 1)))
         pairs = list(zip(['p' for _ in range(len(pairs))], pairs))
         nodes = list(
             itertools.product(np.arange(int(np.ceil(self.n * 0.5))), np.arange(self.n - int(np.ceil(self.n * 0.5)))))
@@ -318,7 +326,7 @@ class LocalSearchTSP(TSP):
                     return True, path, cost + best_delta
                 elif self.exchange == 'edges':
                     save = [best_delta, [[path[a], path[(a + 1) % len(path)]], [path[b - 1], path[b % len(path)]]]]
-                    path[a + 1:b] = path[a+1:b][::-1]
+                    path[a + 1:b] = path[a + 1:b][::-1]
                     save.append(path)
                     self.best_deltas.append(save)
 
@@ -330,8 +338,12 @@ class LocalSearchTSP(TSP):
                 return True, path, cost + best_delta
         return False, path, cost
 
-    def run_algorithm(self, starting_node: int):
-        cost, path = self.init_solution.run_algorithm(starting_node)
+    def run_algorithm(self, starting_node: int, seed: int = None, init_path: List = None):
+        if init_path is None:
+            cost, path = self.init_solution.run_algorithm(starting_node, seed=seed)
+        else:
+            path = init_path
+            cost = np.sum(self.dist_matrix[path, np.roll(path, -1)]) + np.sum(self.costs[path])
         better = True
         while better:
             better, path, cost = self.loop(path, cost)
@@ -350,7 +362,7 @@ class CandidateSteepestLocalSearchTSP(TSP):
 
         self.nn_edges, self.nn_nodes = [], []
         for i in range(self.n):
-            nn_edges = np.argsort(self.dist_matrix[i, :])[1:k+1]
+            nn_edges = np.argsort(self.dist_matrix[i, :])[1:k + 1]
             nn_nodes = np.argsort(self.dist_matrix[i, :] + self.costs)
             ids = np.argwhere(nn_nodes != i)[:k]
             self.nn_edges.append(nn_edges)
@@ -435,8 +447,12 @@ class CandidateSteepestLocalSearchTSP(TSP):
                 return True, path, cost + best_delta
         return False, path, cost
 
-    def run_algorithm(self, starting_node: int):
-        cost, path = self.init_solution.run_algorithm(starting_node)
+    def run_algorithm(self, starting_node: int, seed: int = None, init_path: List = None):
+        if init_path is None:
+            cost, path = self.init_solution.run_algorithm(starting_node, seed=seed)
+        else:
+            path = init_path
+            cost = np.sum(self.dist_matrix[path, np.roll(path, -1)]) + np.sum(self.costs[path])
         better = True
         while better:
             better, path, cost = self.loop(path, cost)
@@ -496,7 +512,7 @@ class DeltaListSteepestLocalSearchTSP(TSP):
                 e1, e2 = [path[a], path[a + 1]], [path[b - 1], path[b]]
                 edges = [[e1, e2], [e1[::-1], e2], [e1, e2[::-1]], [e1[::-1], e2[::-1]]]
                 for edge in edges:
-                    if not(edge[0][0] in edge[1] or edge[0][1] in edge[1]):
+                    if not (edge[0][0] in edge[1] or edge[0][1] in edge[1]):
                         delta = self.two_edges_exchange(edge)
                         if delta < 0:
                             new_move = [delta, ['p', edge]]
@@ -523,7 +539,7 @@ class DeltaListSteepestLocalSearchTSP(TSP):
             try:
                 path.append(path[0])
                 a10, b10, a20, b20 = len(path) - 1 - path[::-1].index(e1[0]), len(path) - 1 - path[::-1].index(e1[1]), \
-                                 len(path) - 1 - path[::-1].index(e2[0]), len(path) - 1 - path[::-1].index(e2[1])
+                                     len(path) - 1 - path[::-1].index(e2[0]), len(path) - 1 - path[::-1].index(e2[1])
                 a11, b11, a21, b21 = path.index(e1[0]), path.index(e1[1]), path.index(e2[0]), path.index(e2[1])
                 path.pop()
             except:
@@ -539,7 +555,8 @@ class DeltaListSteepestLocalSearchTSP(TSP):
             try:
                 path.insert(0, path[-1])
                 path.append(path[1])
-                a00, a10, a20 = len(path) - 1 - path[::-1].index(e1[0]), len(path) - 1 - path[::-1].index(e1[1]), len(path) - 1 - path[::-1].index(e1[2])
+                a00, a10, a20 = len(path) - 1 - path[::-1].index(e1[0]), len(path) - 1 - path[::-1].index(e1[1]), len(
+                    path) - 1 - path[::-1].index(e1[2])
                 a01, a11, a21 = path.index(e1[0]), path.index(e1[1]), path.index(e1[2])
                 path.pop()
                 path.pop(0)
@@ -547,7 +564,8 @@ class DeltaListSteepestLocalSearchTSP(TSP):
                 path.pop()
                 path.pop(0)
                 return False, False, None
-            if (a20 - a10 == 1 and a10 - a00 == 1 and a20 - a00 == 2) or (a21 - a11 == 1 and a11 - a01 == 1 and a21 - a01 == 2):
+            if (a20 - a10 == 1 and a10 - a00 == 1 and a20 - a00 == 2) or (
+                    a21 - a11 == 1 and a11 - a01 == 1 and a21 - a01 == 2):
                 try:
                     b = path.index(e2[1])
                 except:
@@ -630,7 +648,8 @@ class DeltaListSteepestLocalSearchTSP(TSP):
             best_move = self.improving_moves[best_move_idx]
         else:
             return False, path, cost
-        self.improving_moves = [self.improving_moves[i] for i, _ in enumerate(self.improving_moves) if i not in to_delete]
+        self.improving_moves = [self.improving_moves[i] for i, _ in enumerate(self.improving_moves) if
+                                i not in to_delete]
         if best_move is not None:
             delta, move = best_move
             move_type, change = move
@@ -655,8 +674,8 @@ class DeltaListSteepestLocalSearchTSP(TSP):
             #     keys.insert(place, m[0])
             return True, path, cost + delta
 
-    def run_algorithm(self, starting_node: int):
-        cost, path = self.init_solution.run_algorithm(starting_node) #21, [0, 1, 5, 8, 3] #
+    def run_algorithm(self, starting_node: int, **kwargs):
+        cost, path = self.init_solution.run_algorithm(starting_node)  # 21, [0, 1, 5, 8, 3] #
         self.calculate_all_moves(path)
         better = True
         while better:
@@ -664,19 +683,112 @@ class DeltaListSteepestLocalSearchTSP(TSP):
         return cost, path
 
 
-if __name__ == '__main__':
-    nnTSP = DeltaListSteepestLocalSearchTSP('../data/TSPC.csv')
-    print(nnTSP.n)
-    start = time.time()
-    cost, path = nnTSP.run_algorithm(10)
-    print(cost, path)
-    print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
-    print(time.time() - start)
+class MultipleStartLocalSearch(TSP):
 
-    nnTSP = LocalSearchTSP('steepest', '../data/TSPC.csv', 'edges', 'random')
+    def __init__(self, nodes_path: str, local_search: TSP, experiments: int = 20, iters: int = 200):
+        super().__init__(nodes_path)
+        time_start = time.time()
+        self.local_search = local_search
+        self.iters = iters
+        self.experiments = experiments
+        self.time_init = time.time() - time_start
+
+    def run_algorithm(self, starting_node: int, seed: int = None):
+        best_cost, best_path = np.inf, None
+        for _ in range(self.iters):
+            cost, path = self.local_search.run_algorithm(starting_node, seed=seed)
+            starting_node += 1
+            starting_node %= self.n
+            seed += 1
+            if cost < best_cost:
+                best_cost, best_path = cost, copy.deepcopy(path)
+        return best_cost, best_path
+
+
+class IteratedLocalSearch(TSP):
+    def __init__(self, nodes_path: str, local_search: TSP, max_time: float, experiments: int = 20):
+        super().__init__(nodes_path)
+        time_start = time.time()
+        self.local_search = local_search
+        self.max_time = max_time
+        self.experiments = experiments
+        self.time_init = time.time() - time_start
+
+    def signal_handler(self, signum, frame):
+        raise Exception("Timed out!")
+    def perturb_solution(self, path: List, seed: int) -> List:
+        np.random.seed(seed)
+        not_selected = list(set(range(self.n)) - set(path))
+        num_nodes = np.random.randint(4, 8)
+        new_nodes = np.random.choice(not_selected, size=num_nodes, replace=False)
+        old_nodes = np.random.choice(np.arange(len(path)), size=num_nodes, replace=False)
+        for b, a in enumerate(old_nodes):
+            path[a] = new_nodes[b]
+        num_edges = np.random.randint(2, 9)
+        for _ in range(num_edges):
+            start = np.random.randint(0, len(path) - 3)
+            stop = start + np.random.randint(3, len(path) - 1 - start)
+            path[start:stop] = path[start:stop][::-1]
+        return path
+
+    def run_algorithm(self, starting_node: int, seed: int = None):
+        time_start = time.time()
+        iters = 0
+        best_cost, best_path = np.inf, None
+        signal.signal(signal.SIGALRM, self.signal_handler)
+        signal.setitimer(signal.ITIMER_REAL, self.max_time - self.time_init - time.time() + time_start)
+        try:
+            cost, path = self.local_search.run_algorithm(starting_node, seed=seed)
+            while True:
+                path = self.perturb_solution(path, seed)
+                cost, path = self.local_search.run_algorithm(starting_node, seed=seed, init_path=path)
+                seed += 1
+                iters += 1
+                if cost < best_cost:
+                    best_cost, best_path = cost, copy.deepcopy(path)
+        except:
+            return best_cost, best_path, iters
+
+    def run_experiment(self, seed: int = None):
+        """
+        performs function run_algorithm starting from each node
+        :return: (min, max, avg, edges, start) - min, max , avg value of objective function, additionally for minimal
+        value of objective returns edges and starting node
+        """
+        minv, maxv, avgv, avg_time, min_time, max_time = np.inf, -np.inf, 0, 0, np.inf, -np.inf
+        min_iters, max_iters, avg_iters = np.inf, -np.inf, 0
+        min_path, starting_node = None, None
+        for i in range(self.experiments):
+            time_start = time.time()
+            objective, path, iters = self.run_algorithm(i, seed=seed)
+            time_diff = time.time() - time_start + self.time_init
+            seed += 100
+            avg_time += time_diff
+            avgv += objective
+            avg_iters += iters
+            if time_diff > max_time:
+                max_time = time_diff
+            if time_diff < min_time:
+                min_time = time_diff
+            if iters > max_iters:
+                max_iters = iters
+            if iters < min_iters:
+                min_iters = iters
+            if objective > maxv:
+                maxv = objective
+            if objective < minv:
+                minv = objective
+                min_path = path
+                starting_node = i
+
+        return min_time, max_time, avg_time / self.experiments, minv, maxv, avgv / self.experiments, min_iters, max_iters, avg_iters / self.experiments, min_path, starting_node
+
+
+if __name__ == '__main__':
+    nnTSP = IteratedLocalSearch('../data/TSPC.csv', LocalSearchTSP('steepest', '../data/TSPC.csv', 'edges', 'random'), max_time=4.0)
     print(nnTSP.n)
     start = time.time()
-    cost, path = nnTSP.run_algorithm(10)
+    cost, path, iters = nnTSP.run_algorithm(10, seed=10)
     print(cost, path)
     print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
     print(time.time() - start)
