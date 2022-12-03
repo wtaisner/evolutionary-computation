@@ -1,4 +1,3 @@
-import bisect
 import copy
 import itertools
 import signal
@@ -64,7 +63,6 @@ class TSP(ABC):
                 minv = objective
                 min_path = path
                 starting_node = i
-
         return min_time, max_time, avg_time / self.experiments, minv, maxv, avgv / self.experiments, min_path, starting_node
 
     @abstractmethod
@@ -715,7 +713,7 @@ class IteratedLocalSearch(TSP):
         self.time_init = time.time() - time_start
 
     def signal_handler(self, signum, frame):
-        raise Exception("Timed out!")
+        raise TimeoutError("Timed out!")
     def perturb_solution(self, path: List, seed: int) -> List:
         np.random.seed(seed)
         not_selected = list(set(range(self.n)) - set(path))
@@ -726,8 +724,8 @@ class IteratedLocalSearch(TSP):
             path[a] = new_nodes[b]
         num_edges = np.random.randint(2, 9)
         for _ in range(num_edges):
-            start = np.random.randint(0, len(path) - 3)
-            stop = start + np.random.randint(3, len(path) - 1 - start)
+            start = np.random.randint(0, len(path) - 4)
+            stop = start + np.random.randint(3, len(path) - start)
             path[start:stop] = path[start:stop][::-1]
         return path
 
@@ -743,10 +741,10 @@ class IteratedLocalSearch(TSP):
                 path = self.perturb_solution(path, seed)
                 cost, path = self.local_search.run_algorithm(starting_node, seed=seed, init_path=path)
                 seed += 1
-                iters += 1
                 if cost < best_cost:
                     best_cost, best_path = cost, copy.deepcopy(path)
-        except:
+                iters += 1
+        except TimeoutError:
             return best_cost, best_path, iters
 
     def run_experiment(self, seed: int = None):
@@ -785,10 +783,12 @@ class IteratedLocalSearch(TSP):
 
 
 if __name__ == '__main__':
-    nnTSP = IteratedLocalSearch('../data/TSPC.csv', LocalSearchTSP('steepest', '../data/TSPC.csv', 'edges', 'random'), max_time=4.0)
+    nnTSP = IteratedLocalSearch('../data/TSPC.csv', LocalSearchTSP('steepest', '../data/TSPC.csv', 'edges', 'random'), max_time=6.0, experiments=4)
     print(nnTSP.n)
     start = time.time()
-    cost, path, iters = nnTSP.run_algorithm(10, seed=10)
-    print(cost, path)
-    print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
+    c = nnTSP.run_experiment(seed=500)
+    print(c)
     print(time.time() - start)
+    # print(cost, path)
+    # print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
+    # print(time.time() - start)
