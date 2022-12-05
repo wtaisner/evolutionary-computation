@@ -737,8 +737,9 @@ class IteratedLocalSearch(TSP):
         signal.setitimer(signal.ITIMER_REAL, self.max_time - self.time_init - time.time() + time_start)
         try:
             cost, path = self.local_search.run_algorithm(starting_node, seed=seed)
+            best_cost, best_path = cost, copy.deepcopy(path)
             while True:
-                path = self.perturb_solution(path, seed)
+                path = self.perturb_solution(copy.deepcopy(best_path), seed)
                 cost, path = self.local_search.run_algorithm(starting_node, seed=seed, init_path=path)
                 seed += 1
                 if cost < best_cost:
