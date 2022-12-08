@@ -125,7 +125,7 @@ class GreedyCycleTSP(TSP):
     A class implementing greedy cycle method for solving the TSP problem
     """
 
-    def run_algorithm(self, starting_node: int, **kwargs):
+    def run_algorithm(self, starting_node: int, length: int = None, init_path: List = None):
         perc_50 = int(np.ceil(self.n * 0.5))
         dist_matrix = deepcopy(self.dist_matrix)
         dist = dist_matrix[starting_node, :]
@@ -665,11 +665,6 @@ class DeltaListSteepestLocalSearchTSP(TSP):
                 path[a] = b
                 self.add_new_moves_node_select(path, [a, removed])
             self.improving_moves.sort(key=lambda x: x[0])
-            # keys = [m[0] for m in self.improving_moves]
-            # for m in new_moves:
-            #     place = bisect.bisect(keys, m[0])
-            #     self.improving_moves.insert(place, m)
-            #     keys.insert(place, m[0])
             return True, path, cost + delta
 
     def run_algorithm(self, starting_node: int, **kwargs):
@@ -699,7 +694,7 @@ class MultipleStartLocalSearch(TSP):
             starting_node %= self.n
             seed += 1
             if cost < best_cost:
-                best_cost, best_path = cost, copy.deepcopy(path)
+                best_cost, best_path = cost, path[:]
         return best_cost, best_path
 
 
@@ -714,6 +709,7 @@ class IteratedLocalSearch(TSP):
 
     def signal_handler(self, signum, frame):
         raise TimeoutError("Timed out!")
+
     def perturb_solution(self, path: List, seed: int) -> List:
         np.random.seed(seed)
         not_selected = list(set(range(self.n)) - set(path))
@@ -737,13 +733,13 @@ class IteratedLocalSearch(TSP):
         signal.setitimer(signal.ITIMER_REAL, self.max_time - self.time_init - time.time() + time_start)
         try:
             cost, path = self.local_search.run_algorithm(starting_node, seed=seed)
-            best_cost, best_path = cost, copy.deepcopy(path)
+            best_cost, best_path = cost, path[:]
             while True:
-                path = self.perturb_solution(copy.deepcopy(best_path), seed)
+                path = self.perturb_solution(best_path[:], seed)
                 cost, path = self.local_search.run_algorithm(starting_node, seed=seed, init_path=path)
                 seed += 1
                 if cost < best_cost:
-                    best_cost, best_path = cost, copy.deepcopy(path)
+                    best_cost, best_path = cost, path[:]
                 iters += 1
         except TimeoutError:
             return best_cost, best_path, iters
@@ -783,13 +779,103 @@ class IteratedLocalSearch(TSP):
         return min_time, max_time, avg_time / self.experiments, minv, maxv, avgv / self.experiments, min_iters, max_iters, avg_iters / self.experiments, min_path, starting_node
 
 
+class LargeScaleNeighbourSearch(IteratedLocalSearch):
+    def __init__(self, nodes_path, local_search: TSP, max_time: float, use_ls: bool = False, experiments: int = 20):
+        super().__init__(nodes_path, local_search, max_time, experiments)
+        self.initial_solution = GreedyCycleTSP(nodes_path)
+        self.use_ls = use_ls
+
+    def destroy(self, path, seed):
+        np.random.seed(seed)
+        path_start = np.random.randint(len(path))
+        path = path[path_start:] + path[:path_start]
+        num_subpaths_delete = np.random.randint(4, 8)
+        lengths = np.random.randint(4, 10, size=num_subpaths_delete)
+        starts = np.random.choice(np.arange(1, len(path) - np.max(lengths) - 2), size=num_subpaths_delete,
+                                  replace=False)
+        results = sorted(zip(starts, lengths), key=lambda x: x[0])
+        starts, lengths = [], []
+        s0, l0 = results[0]
+        for i in range(1, num_subpaths_delete):
+            s1, l1 = results[i]
+            if s0 + l0 >= s1:
+                s0, l0 = s0, s1 + l1 - s0
+            else:
+                starts.append(s0)
+                lengths.append(l0)
+                s0, l0 = s1, l1
+        starts.append(s0)
+        lengths.append(l0)
+        for s, l in zip(starts, lengths):
+            path[s:s + l] = [None] * l
+        return path, starts, lengths
+
+    def greedy_cycle(self, whole_path, init_path, length):
+        dist_matrix = deepcopy(self.dist_matrix)
+        ids = [p for p in whole_path if p is not None]
+        dist_matrix[ids, ids] = None
+        cost = deepcopy(self.costs)
+        cost[ids] = None
+        path = init_path[:]
+
+        for _ in range(length):
+            dist_matrix[path, path] = None
+            cost[path] = None
+            path.append(path[0])
+            i = np.argmin([np.nanmin(
+                dist_matrix[path[i], :] + dist_matrix[path[i + 1], :] + cost - self.dist_matrix[path[i], path[i + 1]])
+                for i in range(len(path) - 1)])
+            i_edge = [path[i], path[i + 1]]
+            path.pop()
+            dist_i, dist_j = dist_matrix[i_edge[0], :], dist_matrix[i_edge[1], :]
+            new_node = np.nanargmin(dist_i + dist_j + cost)
+            path.insert(i + 1, new_node)
+
+        return path
+
+    def greedycycle_repair(self, path, starts, lengths):
+        for s, l in zip(starts, lengths):
+            init_path = [path[s - 1], path[s + l]]
+            slice_path = self.greedy_cycle(path, init_path, l)
+            path[s - 1: s + l + 1] = slice_path[:]
+        return path
+
+    def run_algorithm(self, starting_node: int, seed: int = None):
+        time_start = time.time()
+        iters = 0
+        best_cost, best_path = np.inf, None
+        signal.signal(signal.SIGALRM, self.signal_handler)
+        signal.setitimer(signal.ITIMER_REAL, self.max_time - self.time_init - time.time() + time_start)
+        try:
+            cost, path = self.initial_solution.run_algorithm(starting_node)
+            if self.use_ls:
+                cost, path = self.local_search.run_algorithm(starting_node, init_path=path, seed=seed)
+            best_cost, best_path = cost, path[:]
+            while True:
+                path, starts, lengths = self.destroy(best_path[:], seed)
+                path = self.greedycycle_repair(path, starts, lengths)
+                if not self.use_ls:
+                    cost = np.sum(self.dist_matrix[path, np.roll(path, -1)]) + np.sum(self.costs[path])
+                else:
+                    cost, path = self.local_search.run_algorithm(starting_node, seed=seed, init_path=path)
+                seed += 1
+                if cost < best_cost:
+                    best_cost, best_path = cost, path[:]
+                iters += 1
+        except TimeoutError:
+            return best_cost, best_path, iters
+
+
 if __name__ == '__main__':
-    nnTSP = IteratedLocalSearch('../data/TSPC.csv', LocalSearchTSP('steepest', '../data/TSPC.csv', 'edges', 'random'), max_time=6.0, experiments=4)
+    nnTSP = LargeScaleNeighbourSearch('../data/TSPC.csv',
+                                      LocalSearchTSP('steepest', '../data/TSPC.csv', 'edges', 'random'), max_time=20.0,
+                                      experiments=4)
     print(nnTSP.n)
     start = time.time()
-    c = nnTSP.run_experiment(seed=500)
+    c = nnTSP.run_algorithm(0, seed=500)
     print(c)
     print(time.time() - start)
-    # print(cost, path)
-    # print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
-    # print(time.time() - start)
+    cost, path, iters = c
+    print(cost, path)
+    print(np.sum(nnTSP.dist_matrix[path, np.roll(path, -1)]) + np.sum(nnTSP.costs[path]), path)
+    print(time.time() - start)
