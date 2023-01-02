@@ -25,3 +25,11 @@ def plot_result(nodes: np.ndarray, path: np.array, objective: int):
     plt.colorbar(nc)
     plt.text(-5, -20, f'objective: {objective}')
     plt.show()
+
+
+def plot_similarity(objectives, similarity):
+    plt.scatter(objectives, similarity, s=7)
+    plt.xlabel("Objective value")
+    plt.ylabel("Similarity")
+    plt.show()
+

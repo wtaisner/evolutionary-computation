@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import List
 
 import numpy as np
+from tqdm import tqdm
 
 
 class TSP(ABC):
@@ -269,8 +270,10 @@ class LocalSearchTSP(TSP):
         path.pop()
         return new - current
 
-    def greedy_loop(self, init_path, cost):
+    def greedy_loop(self, init_path, cost, seed=None):
         path = copy.deepcopy(init_path)
+        if seed is not None:
+            np.random.seed(seed)
         np.random.shuffle(self.all)
         not_selected = list(set(range(self.n)) - set(path))
         for entry in self.all:
@@ -299,7 +302,7 @@ class LocalSearchTSP(TSP):
                     return True, path, cost
         return False, path, cost
 
-    def steepest_loop(self, init_path, cost):
+    def steepest_loop(self, init_path, cost, seed=None):
         path = copy.deepcopy(init_path)
         not_selected = list(set(range(self.n)) - set(path))
         best_delta, best_pair, best_t = 0, None, None
@@ -344,7 +347,7 @@ class LocalSearchTSP(TSP):
             cost = np.sum(self.dist_matrix[path, np.roll(path, -1)]) + np.sum(self.costs[path])
         better = True
         while better:
-            better, path, cost = self.loop(path, cost)
+            better, path, cost = self.loop(path, cost, seed=seed)
         return cost, path
 
 
@@ -699,7 +702,7 @@ class MultipleStartLocalSearch(TSP):
 
 
 class IteratedLocalSearch(TSP):
-    def __init__(self, nodes_path: str, local_search: TSP, max_time: float, experiments: int = 20):
+    def __init__(self, nodes_path: str, local_search: TSP, max_time: float, experiments: int = 10):
         super().__init__(nodes_path)
         time_start = time.time()
         self.local_search = local_search
@@ -780,7 +783,7 @@ class IteratedLocalSearch(TSP):
 
 
 class LargeScaleNeighbourSearch(IteratedLocalSearch):
-    def __init__(self, nodes_path, local_search: TSP, max_time: float, use_ls: bool = False, experiments: int = 20):
+    def __init__(self, nodes_path, local_search: TSP, max_time: float, use_ls: bool = False, experiments: int = 10):
         super().__init__(nodes_path, local_search, max_time, experiments)
         self.initial_solution = GreedyCycleTSP(nodes_path)
         self.use_ls = use_ls
